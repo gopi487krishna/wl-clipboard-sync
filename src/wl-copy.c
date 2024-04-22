@@ -28,6 +28,7 @@
 #include "util/string.h"
 #include "util/misc.h"
 
+#include <assert.h>
 #include <wayland-client.h>
 #include <unistd.h>
 #include <string.h>
@@ -247,65 +248,19 @@ int main(int argc, argv_t argv) {
     copy_action->device = device;
     copy_action->primary = options.primary;
 
-    if (!options.clear) {
-        if (optind < argc) {
-            /* Copy our command-line arguments */
-            copy_action->argv_to_copy = &argv[optind];
-        } else {
-            /* Copy data from our stdin.
-             * It's important that we only do this
-             * after going through the initial stages
-             * that are likely to result in errors,
-             * so that we don't forget to clean up
-             * the temp file.
-             */
-            char *temp_file = dump_stdin_into_a_temp_file();
-            if (options.trim_newline) {
-                trim_trailing_newline(temp_file);
-            }
-            if (options.mime_type == NULL) {
-                options.mime_type = infer_mime_type_from_contents(temp_file);
-            }
-            copy_action->fd_to_copy_from = open(
-                temp_file,
-                O_RDONLY | O_CLOEXEC
-            );
-            if (copy_action->fd_to_copy_from < 0) {
-                perror("Failed to open temp file");
-                return 1;
-            }
-            /* Now, remove the temp file and its
-             * containing directory. We still keep
-             * access to the file through our open
-             * file descriptor.
-             */
-            int rc = unlink(temp_file);
-            if (rc < 0) {
-                perror("Failed to unlink temp file");
-            }
-            rc = rmdir(dirname(temp_file));
-            if (rc < 0) {
-                perror("Failed to remove temp file directory");
-            }
-            free(temp_file);
-        }
 
-        /* Create the source */
-        copy_action->source = device_manager_create_source(device_manager);
-        if (options.mime_type != NULL) {
-            source_offer(copy_action->source, options.mime_type);
-        }
-        if (options.mime_type == NULL || mime_type_is_text(options.mime_type)) {
-            /* Offer a few generic plain text formats */
-            source_offer(copy_action->source, text_plain);
-            source_offer(copy_action->source, text_plain_utf8);
-            source_offer(copy_action->source, "TEXT");
-            source_offer(copy_action->source, "STRING");
-            source_offer(copy_action->source, "UTF8_STRING");
-        }
-        free(options.mime_type);
-        options.mime_type = NULL;
-    }
+    /* No file creation needed */
+
+
+    /* Create the source */
+    copy_action->source = device_manager_create_source(device_manager);
+
+    /* Offer a few generic plain text formats */
+    source_offer(copy_action->source, text_plain);
+    source_offer(copy_action->source, text_plain_utf8);
+    source_offer(copy_action->source, "TEXT");
+    source_offer(copy_action->source, "STRING");
+    source_offer(copy_action->source, "UTF8_STRING");
 
     if (device->needs_popup_surface) {
         copy_action->popup_surface = calloc(1, sizeof(struct popup_surface));

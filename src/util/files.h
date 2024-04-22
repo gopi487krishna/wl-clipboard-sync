@@ -34,6 +34,8 @@ char *path_for_fd(int fd);
 char *infer_mime_type_from_contents(const char *file_path);
 char *infer_mime_type_from_name(const char *file_path);
 
+/* Creates a tmp file which is only visible to this process */
+const char* create_tmp_file(void);
 /* Returns the name of a new file */
 char *dump_stdin_into_a_temp_file(void);
 

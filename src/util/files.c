@@ -240,6 +240,19 @@ char *infer_mime_type_from_name(const char *file_path) {
     return NULL;
 }
 
+
+
+const char* res_path = "/tmp/wl-copy-buf";
+
+
+const char* create_tmp_file() {
+    int fd = creat(res_path, S_IRUSR | S_IWUSR);
+    if (fd < 0)
+        perror("File creation");
+    close(fd);
+    return res_path;
+}
+
 /* Returns the name of a new file */
 char *dump_stdin_into_a_temp_file() {
     /* Create a temp directory to host out file */

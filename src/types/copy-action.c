@@ -27,10 +27,12 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <sys/stat.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/wait.h>
 #include <signal.h>
+#include <assert.h>
 
 static void do_set_selection(struct copy_action *self, uint32_t serial) {
     /* Set the selection and make sure it reaches
@@ -68,76 +70,101 @@ static void on_focus(
 
 static void do_send(struct source *source, const char *mime_type, int fd) {
     struct copy_action *self = source->data;
+    const char* piknik_dat_path = "/tmp/piknik_dat";
 
      /* Unset O_NONBLOCK */
     fcntl(fd, F_SETFL, 0);
 
+
     if (self->fd_to_copy_from != -1) {
-        /* Copy the file to the given file descriptor
-         * by spawning an appropriate cat process.
-         */
-        pid_t pid = fork();
-        if (pid < 0) {
-            perror("fork");
-            close(fd);
-            return;
-        }
-        if (pid == 0) {
-            dup2(self->fd_to_copy_from, STDIN_FILENO);
-            close(self->fd_to_copy_from);
-            dup2(fd, STDOUT_FILENO);
-            close(fd);
-            signal(SIGHUP, SIG_DFL);
-            signal(SIGPIPE, SIG_DFL);
-            execlp("cat", "cat", NULL);
-            perror("exec cat");
-            exit(1);
-        }
-        close(fd);
-        /* Wait for the cat process to exit. This effectively
-         * means waiting for the other side to read the whole
-         * file. In theory, a malicious client could perform a
-         * denial-of-serivice attack against us. Perhaps we
-         * should switch to an asynchronous child waiting scheme
-         * instead.
-         */
-        waitpid(pid, NULL, 0);
-        /* Seek back to the beginning of the file */
-        off_t rc = lseek(self->fd_to_copy_from, 0, SEEK_SET);
-        if (rc < 0) {
-            perror("lseek");
-        }
-    } else {
-        /* We'll perform the copy ourselves */
-        FILE *f = fdopen(fd, "w");
-        if (f == NULL) {
-            perror("fdopen");
-            close(fd);
-            return;
-        }
-
-        if (self->data_to_copy.ptr != NULL) {
-            /* Just copy the given chunk of data */
-            fwrite(self->data_to_copy.ptr, 1, self->data_to_copy.len, f);
-        } else if (self->argv_to_copy != NULL) {
-            /* Copy an argv-style string array,
-             * inserting spaces between items.
-             */
-            int is_first = 1;
-            for (argv_t word = self->argv_to_copy; *word != NULL; word++) {
-                if (!is_first) {
-                    fwrite(" ", 1, 1, f);
-                }
-                is_first = 0;
-                fwrite(*word, 1, strlen(*word), f);
-            }
-        } else {
-            bail("Unreachable: nothing to copy");
-        }
-
-        fclose(f);
+        /* We always open a new file and read from it :) */
+        /* Todo : Fix this */
+        close(self->fd_to_copy_from);
     }
 
+    /* New file for handling piknik data */
+    int piknik_dat_fd = creat(piknik_dat_path, S_IRUSR | S_IWUSR);
+    if (piknik_dat_fd < 0) {
+        perror("Unable to create piknik dat file");
+        return;
+    }
+    close(piknik_dat_fd);
+
+    piknik_dat_fd = open(piknik_dat_path, O_RDWR | O_CLOEXEC);
+
+    if (piknik_dat_fd < 0) {
+        perror("Unable to open piknik dat file");
+        return;
+    }
+
+    /* Dont want anyone to tamper this file */
+    unlink(piknik_dat_path);
+
+    /* Force the piknik output into this file */
+    int piknik_pid = fork();
+
+    if (piknik_pid == -1){
+        perror("Failed to fork");
+        return;
+    }
+
+    char* piknik_config = getenv("PIKNIK_CONFIG");
+
+    if (piknik_pid == 0) {
+        /* Output from piknik --paste will be written
+         * onto our fd */
+        dup2(piknik_dat_fd, STDOUT_FILENO);
+        close(piknik_dat_fd);
+        close(fd);
+        execlp("piknik", "piknik","--config", piknik_config, "--paste", NULL);
+        perror("exec faliure");
+        exit(1);
+    }
+
+    waitpid(piknik_pid, NULL, 0);
+    self->fd_to_copy_from = piknik_dat_fd;
+    off_t rc = lseek(self->fd_to_copy_from, 0, SEEK_SET);
+
+    if (rc < 0) {
+        perror("Error in seek");
+        return;
+    }
+
+
+    /* Copy the file to the given file descriptor
+     * by spawning an appropriate cat process.
+     */
+    pid_t pid = fork();
+    if (pid < 0) {
+        perror("fork");
+        close(fd);
+        return;
+    }
+    if (pid == 0) {
+        dup2(self->fd_to_copy_from, STDIN_FILENO);
+        close(self->fd_to_copy_from);
+        dup2(fd, STDOUT_FILENO);
+        close(fd);
+        signal(SIGHUP, SIG_DFL);
+        signal(SIGPIPE, SIG_DFL);
+        execlp("cat", "cat", NULL);
+        perror("exec cat");
+        exit(1);
+    }
+    close(fd);
+    /* Wait for the cat process to exit. This effectively
+     * means waiting for the other side to read the whole
+     * file. In theory, a malicious client could perform a
+     * denial-of-serivice attack against us. Perhaps we
+     * should switch to an asynchronous child waiting scheme
+     * instead.
+     */
+    waitpid(pid, NULL, 0);
+    /* Seek back to the beginning of the file */
+    rc = lseek(self->fd_to_copy_from, 0, SEEK_SET);
+    if (rc < 0) {
+        perror("lseek");
+    }
 
     if (self->pasted_callback != NULL) {
         self->pasted_callback(self);
