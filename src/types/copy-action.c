@@ -109,6 +109,8 @@ static void do_send(struct source *source, const char *mime_type, int fd) {
     }
 
     char* piknik_config = getenv("PIKNIK_CONFIG");
+    char* piknik_path = getenv("PIKNIK_PATH");
+    char* piknik_bin_name = getenv("PIKNIK_BIN_NAME");
 
     if (piknik_pid == 0) {
         /* Output from piknik --paste will be written
@@ -116,7 +118,7 @@ static void do_send(struct source *source, const char *mime_type, int fd) {
         dup2(piknik_dat_fd, STDOUT_FILENO);
         close(piknik_dat_fd);
         close(fd);
-        execlp("piknik", "piknik","--config", piknik_config, "--paste", NULL);
+        execlp(piknik_path, piknik_bin_name, "--config", piknik_config, "--paste", NULL);
         perror("exec faliure");
         exit(1);
     }
